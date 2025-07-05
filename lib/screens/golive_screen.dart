@@ -1,6 +1,8 @@
 import 'dart:typed_data' as unit;
 import 'package:dotted_border/dotted_border.dart';
 import 'package:flutter/material.dart';
+import 'package:twitch_clone_pro/resources/supabase_methods.dart';
+import 'package:twitch_clone_pro/screens/broadcasting_screen.dart';
 import 'package:twitch_clone_pro/utils/colors.dart';
 import 'package:twitch_clone_pro/utils/utils.dart';
 import 'package:twitch_clone_pro/widgets/custom_Button.dart';
@@ -16,6 +18,25 @@ class GoLiveScreen extends StatefulWidget {
 class _GoLiveScreenState extends State<GoLiveScreen> {
   final TextEditingController _controller = TextEditingController();
   unit.Uint8List? image;
+
+  goLive(BuildContext context) async {
+    String channelId = await SupabaseMethods().startLiveStream(
+      context,
+      image,
+      _controller.text,
+    );
+    if (channelId.isNotEmpty) {
+      Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (context) =>
+              BroadcastingScreen(isBroadcaster: true, channelId: channelId),
+        ),
+      );
+    } else {
+      showSnackBar(context, 'Failed to start livestream');
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return SafeArea(
@@ -96,7 +117,7 @@ class _GoLiveScreenState extends State<GoLiveScreen> {
             padding: EdgeInsetsGeometry.symmetric(horizontal: 22, vertical: 10),
             child: custombutton(
               text: 'Go Live!',
-              onTap: () {},
+              onTap: () => goLive(context),
               color: buttonColor,
               textColor: backgroundColor,
             ),
