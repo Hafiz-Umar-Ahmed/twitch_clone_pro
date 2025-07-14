@@ -2,7 +2,6 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import 'package:twitch_clone_pro/model/comment.dart';
 import 'package:twitch_clone_pro/model/livestream.dart';
 import 'package:twitch_clone_pro/provider/user_provider.dart';
 import 'package:twitch_clone_pro/resources/storage_method.dart';

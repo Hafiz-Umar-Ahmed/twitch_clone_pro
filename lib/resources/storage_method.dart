@@ -44,15 +44,12 @@ class StorageMethod {
         .from(bucketName) // replace with your bucket name
         .list(path: 'thumbnails/');
     if (files.isNotEmpty) {
-      print('first func:${files[0].name}');
       exists = files.any((file) => file.name == uid);
     }
     return exists;
   }
 
   Future<void> deleteFile(String bucketName, String uid) async {
-    final response = await _client.storage.from(bucketName).remove([
-      'thumbnails/$uid',
-    ]);
+    await _client.storage.from(bucketName).remove(['thumbnails/$uid']);
   }
 }

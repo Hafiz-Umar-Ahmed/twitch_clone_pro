@@ -37,7 +37,7 @@ class LiveStream {
       username: map['username'] ?? '',
       viewers: map['viewers']?.toInt() ?? 0,
       channelId: map['channelId'] ?? '',
-      startedAt: DateTime.parse(map['startedAt']) ?? '',
+      startedAt: DateTime.parse(map['startedAt']),
     );
   }
 }
