@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:agora_rtc_engine/agora_rtc_engine.dart';
@@ -8,7 +10,10 @@ import 'package:twitch_clone_pro/model/user.dart';
 import 'package:twitch_clone_pro/provider/user_provider.dart';
 import 'package:twitch_clone_pro/resources/supabase_methods.dart';
 import 'package:twitch_clone_pro/screens/home_screen.dart';
+import 'package:twitch_clone_pro/utils/colors.dart';
 import 'package:twitch_clone_pro/widgets/chat.dart';
+import 'package:http/http.dart' as http;
+import 'package:twitch_clone_pro/widgets/custom_Button.dart';
 
 class BroadcastingScreen extends StatefulWidget {
   final bool isBroadcaster;
@@ -30,6 +35,9 @@ class _BroadcastingScreenState extends State<BroadcastingScreen> {
   bool switchCamera = true;
   bool isMuted = false;
   final List<int> _remoteUid = [];
+  final String uri = 'http://192.168.0.104:8080/';
+  String? token;
+  int? localUid;
 
   @override
   initState() {
@@ -43,34 +51,49 @@ class _BroadcastingScreenState extends State<BroadcastingScreen> {
     _addListners();
 
     await _engine.enableVideo();
-    await _engine.startPreview();
     await _engine.setChannelProfile(
       ChannelProfileType.channelProfileLiveBroadcasting,
     );
+
     if (widget.isBroadcaster) {
       await _engine.setClientRole(role: ClientRoleType.clientRoleBroadcaster);
+      await _engine.startPreview();
     } else {
       await _engine.setClientRole(role: ClientRoleType.clientRoleAudience);
     }
-    setState(() {
-      hasJoined = false;
-    });
+
     await _joinChannel();
-    if (mounted) {
+  }
+
+  Future<void> getToken() async {
+    final res = await http.get(
+      Uri.parse(
+        '${uri}rtc/${widget.channelId}/publisher/userAccount/${Provider.of<UserProvider>(context, listen: false).user.uid}/',
+      ),
+    );
+    if (res.statusCode == 200) {
       setState(() {
-        hasJoined = true;
+        token = res.body;
+        token = jsonDecode(token!)['rtcToken'];
       });
+    } else {
+      debugPrint('there is some issue in getting the token');
     }
   }
 
   _joinChannel() async {
+    await getToken();
     if (defaultTargetPlatform == TargetPlatform.android) {
       await [Permission.microphone, Permission.camera].request();
     }
-    _engine.joinChannelWithUserAccount(
-      token: agoraTempId,
-      channelId: 'test123',
-      userAccount: Provider.of<UserProvider>(context, listen: false).user.uid,
+
+    final userUid = Provider.of<UserProvider>(context, listen: false).user.uid;
+    localUid = userUid.hashCode;
+
+    await _engine.joinChannelWithUserAccount(
+      token: token!,
+      channelId: widget.channelId,
+      userAccount: userUid,
     );
   }
 
@@ -78,10 +101,17 @@ class _BroadcastingScreenState extends State<BroadcastingScreen> {
     _engine.registerEventHandler(
       RtcEngineEventHandler(
         onJoinChannelSuccess: (connection, elapsed) {
-          debugPrint('onJoinChannelSuccess $connection.channelId $elapsed');
+          debugPrint('onJoinChannelSuccess ${connection.channelId} $elapsed');
+          if (mounted) {
+            setState(() {
+              hasJoined = true;
+            });
+          }
         },
         onUserJoined: (connection, remoteUid, elapsed) {
-          debugPrint('onUserJoined $connection.channelId $remoteUid $elapsed');
+          debugPrint(
+            'onUserJoined ${connection.channelId} $remoteUid $elapsed',
+          );
           if (mounted) {
             setState(() {
               _remoteUid.add(remoteUid);
@@ -89,7 +119,9 @@ class _BroadcastingScreenState extends State<BroadcastingScreen> {
           }
         },
         onUserOffline: (connection, remoteUid, reason) {
-          debugPrint('onUserOffline $connection.channelId $remoteUid $reason');
+          debugPrint(
+            'onUserOffline ${connection.channelId} $remoteUid $reason',
+          );
           if (mounted) {
             setState(() {
               _remoteUid.removeWhere((e) => e == remoteUid);
@@ -97,12 +129,17 @@ class _BroadcastingScreenState extends State<BroadcastingScreen> {
           }
         },
         onLeaveChannel: (connection, stats) {
-          debugPrint('onLeaveChannel $connection.channelId');
+          debugPrint('onLeaveChannel ${connection.channelId}');
           if (mounted) {
             setState(() {
               _remoteUid.clear();
+              hasJoined = false;
             });
           }
+        },
+        onTokenPrivilegeWillExpire: (connection, token) async {
+          await getToken();
+          await _engine.renewToken(token);
         },
       ),
     );
@@ -159,13 +196,23 @@ class _BroadcastingScreenState extends State<BroadcastingScreen> {
   Widget build(BuildContext context) {
     final user = Provider.of<UserProvider>(context).user;
     return PopScope(
-      canPop: false,
+      canPop: true,
       onPopInvokedWithResult: (didPop, result) async {
         if (!didPop) {
           await _leaveChannel(user);
         }
       },
       child: Scaffold(
+        bottomNavigationBar: widget.isBroadcaster
+            ? custombutton(
+                text: 'End Livestream',
+                onTap: () async {
+                  await _leaveChannel(user);
+                },
+                color: buttonColor,
+                textColor: Colors.white,
+              )
+            : null,
         body: Padding(
           padding: const EdgeInsets.all(8.0),
           child: Column(
@@ -174,22 +221,25 @@ class _BroadcastingScreenState extends State<BroadcastingScreen> {
               hasJoined
                   ? _renderVideo(user)
                   : Center(child: CircularProgressIndicator()),
-              if ('${user.uid}${user.username}' == widget.channelId)
-                Expanded(
-                  child: Column(
-                    children: [
+              Expanded(
+                child: Column(
+                  children: [
+                    // Only show camera and mute controls for broadcasters
+                    if (widget.isBroadcaster) ...[
                       InkWell(
                         onTap: _switchCamera,
                         child: const Text('Switch Camera'),
                       ),
                       InkWell(
                         onTap: _onToggleMute,
-                        child: Text((isMuted ? 'Mute Audio' : 'UnmuteAudio')),
+                        child: Text((isMuted ? 'Unmute Audio' : 'Mute Audio')),
                       ),
-                      Expanded(child: ChatWidget(channelId: widget.channelId)),
                     ],
-                  ),
+                    // Show chat for both broadcasters and viewers
+                    Expanded(child: ChatWidget(channelId: widget.channelId)),
+                  ],
                 ),
+              ),
             ],
           ),
         ),
@@ -200,45 +250,40 @@ class _BroadcastingScreenState extends State<BroadcastingScreen> {
   _renderVideo(User user) {
     return AspectRatio(
       aspectRatio: 16 / 9,
-      child: ('${user.uid}${user.username}' == widget.channelId)
+      child: widget.isBroadcaster
           ? AgoraVideoView(
               controller: VideoViewController(
                 rtcEngine: _engine,
-                canvas: VideoCanvas(renderMode: RenderModeType.renderModeFit),
-                useAndroidSurfaceView: true,
+                canvas: VideoCanvas(
+                  uid: 0,
+                  renderMode: RenderModeType.renderModeFit,
+                ),
               ),
             )
           : (_remoteUid.isNotEmpty
-                ? (kIsWeb
-                      ? AgoraVideoView(
-                          controller: VideoViewController.remote(
-                            connection: RtcConnection(
-                              channelId: widget.channelId,
-                              localUid: user.uid.hashCode,
-                            ),
-                            rtcEngine: _engine,
-                            canvas: VideoCanvas(
-                              uid: _remoteUid[0],
-                              renderMode: RenderModeType.renderModeFit,
-                            ),
-                            useFlutterTexture: false,
-                          ),
-                        )
-                      : AgoraVideoView(
-                          controller: VideoViewController.remote(
-                            connection: RtcConnection(
-                              channelId: widget.channelId,
-                              localUid: user.uid.hashCode,
-                            ),
-                            rtcEngine: _engine,
-                            canvas: VideoCanvas(
-                              uid: _remoteUid[0],
-                              renderMode: RenderModeType.renderModeFit,
-                            ),
-                            useFlutterTexture: true,
-                          ),
-                        ))
-                : Container()),
+                ? AgoraVideoView(
+                    controller: VideoViewController.remote(
+                      connection: RtcConnection(
+                        channelId: widget.channelId,
+                        localUid: localUid ?? 0,
+                      ),
+                      rtcEngine: _engine,
+                      canvas: VideoCanvas(
+                        uid: _remoteUid[0],
+                        renderMode: RenderModeType.renderModeFit,
+                      ),
+                      useFlutterTexture: !kIsWeb,
+                    ),
+                  )
+                : Container(
+                    color: Colors.grey[900],
+                    child: Center(
+                      child: Text(
+                        'Waiting for broadcaster...',
+                        style: TextStyle(color: Colors.white),
+                      ),
+                    ),
+                  )),
     );
   }
 }

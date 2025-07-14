@@ -82,7 +82,7 @@ class SupabaseMethods {
     }
   }
 
-  reduceViewCount(String channelId, bool isInc) async {
+  Future<void> reduceViewCount(String channelId, bool isInc) async {
     await _client.rpc(
       'increment_viewers',
       params: {'row_id': channelId, 'delta': isInc ? 1 : -1},
